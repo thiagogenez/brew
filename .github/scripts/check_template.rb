@@ -1,20 +1,20 @@
 # frozen_string_literal: true
 
-require "yaml"
+require 'yaml'
 
 AI_MENTION = /\b(?:AI|LLM)\b/i
 CHECKBOX_MARKER = /\A- \[[ xX]\] /
 HTML_COMMENT_LINE = /\A<!--.*-->\z/
-ISSUE_FORM_HEADING_MARKER = "### "
+ISSUE_FORM_HEADING_MARKER = '### '
 MARKDOWN_HEADING = /\A#+ /
 MARKDOWN_HORIZONTAL_LINE = /\A-+\z/
-NORMALISED_CHECKBOX_MARKER = "- [ ] "
+NORMALISED_CHECKBOX_MARKER = '- [ ] '
 REQUIRED_TEMPLATE_PERCENTAGE = 75
 PERCENTAGE_SCALE = 100
 
 lines = lambda do |path|
-  File.read(path, mode: "rb")
-      .encode("UTF-8", invalid: :replace, undef: :replace)
+  File.read(path, mode: 'rb')
+      .encode('UTF-8', invalid: :replace, undef: :replace)
       .lines(chomp: true)
 end
 
@@ -30,7 +30,7 @@ normalised_lines = lambda do |path|
 end
 
 case ARGV.fetch(0)
-when "pull-request"
+when 'pull-request'
   # Pass when the body keeps at least REQUIRED_TEMPLATE_PERCENTAGE of the template's
   # headings and checkboxes combined (ticked or not) and still discloses AI usage:
   # either the template's AI disclosure checkbox (whose label mentions AI) or any
@@ -46,7 +46,7 @@ when "pull-request"
   discloses_ai = body_lines.any? { |line| line.match?(AI_MENTION) }
 
   puts preserves_template && discloses_ai
-when "issue"
+when 'issue'
   # Pass when the body keeps at least REQUIRED_TEMPLATE_PERCENTAGE of some template's
   # headings and checkboxes combined (ticked or not). Counting headings as well as
   # checkboxes lets the feature template (a single checkbox) be told apart from a
@@ -54,12 +54,12 @@ when "issue"
   body_lines = lines.call(ARGV.fetch(1))
 
   templates = Dir.glob("#{ARGV.fetch(2)}/*.{yml,yaml}").filter_map do |template_path|
-    fields = YAML.safe_load_file(template_path).fetch("body", [])
-    headings = fields.filter_map { |field| field.dig("attributes", "label") if field["type"] != "markdown" }
+    fields = YAML.safe_load_file(template_path).fetch('body', [])
+    headings = fields.filter_map { |field| field.dig('attributes', 'label') if field['type'] != 'markdown' }
     checkboxes = fields.flat_map do |field|
-      next [] if field["type"] != "checkboxes"
+      next [] if field['type'] != 'checkboxes'
 
-      field.fetch("attributes", {}).fetch("options", []).map { |option| option.fetch("label") }
+      field.fetch('attributes', {}).fetch('options', []).map { |option| option.fetch('label') }
     end
     items = headings.map { |label| [:heading, label] } + checkboxes.map { |label| [:checkbox, label] }
     next if items.empty?
@@ -79,11 +79,11 @@ when "issue"
     puts false
     closest_missing = templates.min_by { |template| template[:missing].length }&.fetch(:missing)
     closest_missing&.each do |kind, label|
-      warn((kind == :checkbox) ? "- [ ] #{label}" : "- `#{ISSUE_FORM_HEADING_MARKER}#{label}` section")
+      warn(kind == :checkbox ? "- [ ] #{label}" : "- `#{ISSUE_FORM_HEADING_MARKER}#{label}` section")
     end
   end
 else
-  warn "Usage: check_template.rb pull-request BODY TEMPLATE"
-  warn "       check_template.rb issue BODY TEMPLATE_DIRECTORY"
+  warn 'Usage: check_template.rb pull-request BODY TEMPLATE'
+  warn '       check_template.rb issue BODY TEMPLATE_DIRECTORY'
   exit 1
 end
