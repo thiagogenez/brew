@@ -29,11 +29,6 @@ module Homebrew
           end
         end
 
-        sig { params(element: ::Kramdown::Element, options: T::Hash[Symbol, T.untyped]).void }
-        def convert_variable(element, options)
-          options[:result] << "\\fI#{escape(element.value)}\\fP"
-        end
-
         sig { override.params(element: ::Kramdown::Element, options: T::Hash[Symbol, T.untyped]).void }
         def convert_a(element, options)
           if element.attr["href"].chr == "#"

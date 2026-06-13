@@ -33,7 +33,6 @@ module DeprecateDisable
 
   # One year when << or >> to Date.today.
   REMOVE_DISABLED_TIME_WINDOW = 12
-  REMOVE_DISABLED_BEFORE = T.let((Date.today << REMOVE_DISABLED_TIME_WINDOW).freeze, Date)
 
   sig { params(formula_or_cask: T.any(Formula, Cask::Cask)).returns(T.nilable(Symbol)) }
   def type(formula_or_cask)

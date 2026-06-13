@@ -86,66 +86,6 @@ module Homebrew
       self
     end
 
-    sig { void }
-    def audit_version
-      if (version_text = version).nil?
-        problem "Missing version"
-      elsif (formula_owner = owner).is_a?(::Formula) &&
-            !version_text.to_s.match?(GitHubPackages::VALID_OCI_TAG_REGEX) &&
-            (formula_owner.core_formula? ||
-            (formula_owner.bottle_defined? &&
-              GitHubPackages::URL_REGEX.match?(formula_owner.bottle_specification.root_url)))
-        problem "`version #{version}` does not match #{GitHubPackages::VALID_OCI_TAG_REGEX.source}"
-      elsif !version_text.detected_from_url?
-        version_url = Version.detect(url!, **specs)
-        if version_url.to_s == version_text.to_s && version.instance_of?(Version)
-          problem "`version #{version_text}` is redundant with version scanned from URL"
-        end
-      end
-    end
-
-    sig { void }
-    def audit_download_strategy
-      url_strategy = DownloadStrategyDetector.detect(url!)
-
-      if (using == :git || url_strategy == GitDownloadStrategy) && specs[:tag] && !specs[:revision]
-        problem "Git should specify `revision:` when a `tag:` is specified."
-      end
-
-      return unless using
-
-      if using == :cvs
-        mod = specs[:module]
-
-        problem "Redundant `module:` value in URL" if mod == name
-
-        if url!.match?(%r{:[^/]+$})
-          mod = url!.split(":").last
-
-          if mod == name
-            problem "Redundant CVS module appended to URL"
-          else
-            problem "Specify CVS module as `module: \"#{mod}\"` instead of appending it to the URL"
-          end
-        end
-      end
-
-      return if url_strategy != DownloadStrategyDetector.detect("", using)
-
-      problem "Redundant `using:` value in URL"
-    end
-
-    sig { void }
-    def audit_checksum
-      return if spec_name == :head
-      # This condition is non-invertible.
-      # rubocop:disable Style/InvertibleUnlessCondition
-      return unless DownloadStrategyDetector.detect(url.to_s, using) <= CurlDownloadStrategy
-      # rubocop:enable Style/InvertibleUnlessCondition
-
-      problem "Checksum is missing" if checksum.blank?
-    end
-
     sig { returns(T::Array[String]) }
     def self.curl_deps
       @curl_deps ||= T.let(begin
@@ -153,29 +93,6 @@ module Homebrew
       rescue FormulaUnavailableError
         []
       end, T.nilable(T::Array[String]))
-    end
-
-    sig { void }
-    def audit_resource_name_matches_pypi_package_name_in_url
-      return unless url!.match?(%r{^https?://files\.pythonhosted\.org/packages/})
-      # Skip the top-level package name as we only care about `resource "foo"` blocks.
-      return if name == owner!.name
-
-      if url!.end_with? ".whl"
-        path = URI(url!).path
-        return unless path.present?
-
-        pypi_package_name, = File.basename(path).split("-", 2)
-      else
-        url =~ %r{/(?<package_name>[^/]+)-}
-        pypi_package_name = Regexp.last_match(:package_name).to_s
-      end
-
-      T.must(pypi_package_name).gsub!(/[_.]/, "-")
-
-      return if name.to_s.casecmp(pypi_package_name.to_s)&.zero?
-
-      problem "`resource` name should be '#{pypi_package_name}' to match the PyPI package name"
     end
 
     sig { void }
@@ -229,31 +146,6 @@ module Homebrew
           problem "The URL #{url} is not a valid SVN URL" unless Utils::Svn.remote_exists? url
         end
       end
-    end
-
-    sig { void }
-    def audit_head_branch
-      return unless @online
-      return if spec_name != :head
-      return if specs[:tag].present?
-      return if specs[:revision].present?
-      # Skip `resource` URLs as they use SHAs instead of branch specifiers.
-      return if name != owner!.name
-      return unless url.to_s.end_with?(".git")
-      return unless Utils::Git.remote_exists?(url.to_s)
-
-      detected_branch = Utils.popen_read("git", "ls-remote", "--symref", url.to_s, "HEAD")
-                             .match(%r{ref: refs/heads/(.*?)\s+HEAD})&.to_a&.second
-
-      if specs[:branch].blank?
-        problem "Git `head` URL must specify a branch name"
-        return
-      end
-
-      return unless @core_tap
-      return if specs[:branch] == detected_branch
-
-      problem "To use a non-default HEAD branch, add the formula to `head_non_default_branch_allowlist.json`."
     end
 
     sig { params(text: String).void }

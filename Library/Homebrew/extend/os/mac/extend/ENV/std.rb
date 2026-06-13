@@ -101,29 +101,6 @@ module OS
         append_path "CMAKE_PREFIX_PATH", "#{sdk}/usr"
         append_path "CMAKE_FRAMEWORK_PATH", "#{sdk}/System/Library/Frameworks"
       end
-
-      # Some configure scripts won't find libxml2 without help.
-      # This is a no-op with macOS SDK 10.15.4 and later.
-      sig { void }
-      def libxml2
-        sdk = self["SDKROOT"] || MacOS.sdk_path
-        # Use the includes from the sdk
-        append "CPPFLAGS", "-I#{sdk}/usr/include/libxml2" unless Pathname("#{sdk}/usr/include/libxml").directory?
-      end
-
-      sig { void }
-      def no_weak_imports
-        # This has little-to-no usage and doesn't make sense to have a special function for.
-        odeprecated "ENV.no_weak_imports"
-        append "LDFLAGS", "-Wl,-no_weak_imports" if no_weak_imports_support?
-      end
-
-      sig { void }
-      def no_fixup_chains
-        # This has little-to-no usage and behaved inconsistently with the superenv equivalent.
-        odeprecated "ENV.no_fixup_chains"
-        append "LDFLAGS", "-Wl,-no_fixup_chains" if no_fixup_chains_support?
-      end
     end
   end
 end

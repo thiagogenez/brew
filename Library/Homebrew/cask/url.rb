@@ -7,17 +7,8 @@ require "source_location"
 module Cask
   # Class corresponding to the `url` stanza.
   class URL
-    sig { returns(URI::Generic) }
-    attr_reader :uri
-
-    sig { returns(T.nilable(T::Hash[T.any(Symbol, String), String])) }
-    attr_reader :revisions
-
-    sig { returns(T.nilable(T::Boolean)) }
-    attr_reader :trust_cert
-
     sig { returns(T.nilable(T::Hash[String, String])) }
-    attr_reader :cookies, :data
+    attr_reader :cookies
 
     sig { returns(T.nilable(T::Array[String])) }
     attr_reader :header

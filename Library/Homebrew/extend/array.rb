@@ -20,24 +20,6 @@ class Array
   # ```
   def third = self[2]
 
-  # Equal to `self[3]`.
-  #
-  # ### Example
-  #
-  # ```ruby
-  # %w( a b c d e ).fourth # => "d"
-  # ```
-  def fourth = self[3]
-
-  # Equal to `self[4]`.
-  #
-  # ### Example
-  #
-  # ```ruby
-  # %w( a b c d e ).fifth # => "e"
-  # ```
-  def fifth = self[4]
-
   # Converts the array to a comma-separated sentence where the last element is
   # joined by the connector word.
   #

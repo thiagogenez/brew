@@ -13,11 +13,6 @@ module Homebrew
           super(root, options.merge(line_width: 80))
         end
 
-        sig { params(element: ::Kramdown::Element, _options: T::Hash[Symbol, T.untyped]).returns(String) }
-        def convert_variable(element, _options)
-          "*`#{element.value}`*"
-        end
-
         sig { override.params(element: ::Kramdown::Element, options: T::Hash[Symbol, T.untyped]).returns(String) }
         def convert_a(element, options)
           text = inner(element, options)

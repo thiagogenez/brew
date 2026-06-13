@@ -98,85 +98,6 @@ module Cask
         self.class.dsl_key
       end
 
-      # Preserve prior functionality of script which runs first. Should rarely be needed.
-      # :early_script should not delete files, better defer that to :script.
-      # If cask writers never need :early_script it may be removed in the future.
-      sig { params(directives: DirectivesType, options: T.anything).void }
-      def uninstall_early_script(directives, **options)
-        uninstall_script(directives, directive_name: :early_script, **options)
-      end
-
-      # :launchctl must come before :quit/:signal for cases where app would instantly re-launch
-      sig { params(services: String, command: T.class_of(SystemCommand), _kwargs: T.anything).void }
-      def uninstall_launchctl(*services, command:, **_kwargs)
-        booleans = [false, true]
-
-        all_services = []
-
-        # if launchctl item contains a wildcard, find matching process(es)
-        services.each do |service|
-          all_services << service unless service.include?("*")
-          next unless service.include?("*")
-
-          found_services = find_launchctl_with_wildcard(service)
-          next if found_services.blank?
-
-          found_services.each { |found_service| all_services << found_service }
-        end
-
-        all_services.each do |service|
-          ohai "Removing launchctl service #{service}"
-          booleans.each do |sudo|
-            plist_status = command.run(
-              "/bin/launchctl",
-              args:         ["list", service],
-              sudo:,
-              sudo_as_root: sudo,
-              print_stderr: false,
-            ).stdout
-            if plist_status.start_with?("{")
-              result = command.run(
-                "/bin/launchctl",
-                args:         ["remove", service],
-                must_succeed: false,
-                sudo:,
-                sudo_as_root: sudo,
-              )
-              next unless result.success?
-
-              sleep 1
-            end
-            paths = [
-              "/Library/LaunchAgents/#{service}.plist",
-              "/Library/LaunchDaemons/#{service}.plist",
-            ]
-            paths.each { |elt| elt.prepend(Dir.home).freeze } unless sudo
-            paths = paths.map { |elt| Pathname(elt) }.select(&:exist?)
-            paths.each do |path|
-              command.run("/bin/rm", args: ["-f", "--", path], must_succeed: false, sudo:, sudo_as_root: sudo)
-            end
-            # undocumented and untested: pass a path to uninstall :launchctl
-            next unless Pathname(service).exist?
-
-            command.run(
-              "/bin/launchctl",
-              args:         ["unload", "-w", "--", service],
-              must_succeed: false,
-              sudo:,
-              sudo_as_root: sudo,
-            )
-            command.run(
-              "/bin/rm",
-              args:         ["-f", "--", service],
-              must_succeed: false,
-              sudo:,
-              sudo_as_root: sudo,
-            )
-            sleep 1
-          end
-        end
-      end
-
       sig { params(bundle_id: String).returns(T::Array[[Integer, Integer, T.nilable(String)]]) }
       def running_processes(bundle_id)
         system_command!("/bin/launchctl", args: ["list"])
@@ -212,47 +133,6 @@ module Cask
             #{navigation_path} → Automation
           if you haven't already.
         EOS
-      end
-
-      # :quit/:signal must come before :kext so the kext will not be in use by a running process
-      sig {
-        params(
-          bundle_ids: String,
-          command:    T.nilable(T.class_of(SystemCommand)),
-          upgrade:    T::Boolean,
-          _kwargs:    T.anything,
-        ).void
-      }
-      def uninstall_quit(*bundle_ids, command: nil, upgrade: false, **_kwargs)
-        bundle_ids.each do |bundle_id|
-          next unless running?(bundle_id)
-
-          unless T.must(User.current).gui?
-            opoo "Not logged into a GUI; skipping quitting application ID '#{bundle_id}'."
-            next
-          end
-
-          ohai "Quitting application '#{bundle_id}'..."
-
-          quit_succeeded = T.let(false, T::Boolean)
-          begin
-            Timeout.timeout(10) do
-              Kernel.loop do
-                next unless quit(bundle_id).success?
-
-                next if running?(bundle_id)
-
-                puts "Application '#{bundle_id}' quit successfully."
-                quit_succeeded = true
-                break
-              end
-            end
-          rescue Timeout::Error
-            opoo "Application '#{bundle_id}' did not quit. #{automation_access_instructions}"
-          end
-
-          bundle_ids_to_reopen << bundle_id if upgrade && quit_succeeded
-        end
       end
 
       sig { params(bundle_id: String).returns(T::Boolean) }
@@ -305,111 +185,6 @@ module Cask
       end
       private :quit
 
-      # :signal should come after :quit so it can be used as a backup when :quit fails
-      sig {
-        params(signals: [String, String], command: T.nilable(T.class_of(SystemCommand)), _kwargs: T.anything).void
-      }
-      def uninstall_signal(*signals, command: nil, **_kwargs)
-        signals.each do |pair|
-          raise CaskInvalidError.new(cask, "Each #{stanza} :signal must consist of 2 elements.") if pair.size != 2
-
-          signal, bundle_id = pair
-          ohai "Signalling '#{signal}' to application ID '#{bundle_id}'"
-          pids = running_processes(bundle_id).map(&:first)
-          next if pids.none?
-
-          # Note that unlike :quit, signals are sent from the current user (not
-          # upgraded to the superuser). This is a todo item for the future, but
-          # there should be some additional thought/safety checks about that, as a
-          # misapplied "kill" by root could bring down the system. The fact that we
-          # learned the pid from AppleScript is already some degree of protection,
-          # though indirect.
-          # TODO: check the user that owns the PID and don't try to kill those from other users.
-          odebug "Unix ids are #{pids.inspect} for processes with bundle identifier #{bundle_id}"
-          begin
-            Process.kill(signal, *pids)
-          rescue Errno::EPERM => e
-            opoo "Failed to kill #{bundle_id} PIDs #{pids.join(", ")} with signal #{signal}: #{e}"
-          end
-          sleep 3
-        end
-      end
-
-      sig {
-        params(
-          login_items: T.any(String, T::Hash[Symbol, T.any(String, Pathname)]),
-          command:     T.nilable(T.class_of(SystemCommand)),
-          successor:   T.nilable(Cask),
-          _kwargs:     T.anything,
-        ).void
-      }
-      def uninstall_login_item(*login_items, command: nil, successor: nil, **_kwargs)
-        return if successor
-
-        apps = cask.artifacts.select { |a| a.class.dsl_key == :app }
-        derived_login_items = apps.map { |a| { path: a.target } }
-
-        [*derived_login_items, *login_items].each do |item|
-          type, id = if item.respond_to?(:key) && item.key?(:path)
-            ["path", item[:path]]
-          else
-            ["name", item]
-          end
-
-          ohai "Removing login item #{id}"
-
-          result = system_command(
-            "osascript",
-            args: [
-              "-e",
-              %Q(tell application "System Events" to delete every login item whose #{type} is #{id.to_s.inspect}),
-            ],
-          )
-
-          opoo "Removal of login item #{id} failed. #{automation_access_instructions}" unless result.success?
-
-          sleep 1
-        end
-      end
-
-      # :kext should be unloaded before attempting to delete the relevant file
-      sig { params(kexts: String, command: T.nilable(T.class_of(SystemCommand)), _kwargs: T.anything).void }
-      def uninstall_kext(*kexts, command: nil, **_kwargs)
-        kexts.each do |kext|
-          ohai "Unloading kernel extension #{kext}"
-          is_loaded = system_command!(
-            "/usr/sbin/kextstat",
-            args:         ["-l", "-b", kext],
-            sudo:         true,
-            sudo_as_root: true,
-          ).stdout
-          if is_loaded.length > 1
-            system_command!(
-              "/sbin/kextunload",
-              args:         ["-b", kext],
-              sudo:         true,
-              sudo_as_root: true,
-            )
-            sleep 1
-          end
-          found_kexts = system_command!(
-            "/usr/sbin/kextfind",
-            args:         ["-b", kext],
-            sudo:         true,
-            sudo_as_root: true,
-          ).stdout.chomp.lines
-          found_kexts.each do |kext_path|
-            ohai "Removing kernel extension #{kext_path}"
-            system_command!(
-              "/bin/rm",
-              args:         ["-rf", kext_path],
-              sudo:         true,
-              sudo_as_root: true,
-            )
-          end
-        end
-      end
-
       # :script must come before :pkgutil, :delete, or :trash so that the script file is not already deleted
       sig {
         params(
@@ -444,17 +219,6 @@ module Cask
 
         command.run(executable_path, **script_arguments)
         sleep 1
-      end
-
-      sig { params(pkgs: String, command: T.class_of(SystemCommand), _kwargs: T.anything).void }
-      def uninstall_pkgutil(*pkgs, command:, **_kwargs)
-        ohai "Uninstalling packages with `sudo` (which may request your password)..."
-        pkgs.each do |regex|
-          ::Cask::Pkg.all_matching(regex, command).each do |pkg|
-            puts pkg.package_id
-            pkg.uninstall
-          end
-        end
       end
 
       # This returns T::Enumerable[[Pathname, T::Array[Pathname]]] when called without a block,
@@ -505,32 +269,6 @@ module Cask
         end
       end
 
-      sig { params(paths: T.any(Pathname, String), command: T.class_of(SystemCommand), _kwargs: T.anything).void }
-      def uninstall_delete(*paths, command:, **_kwargs)
-        return if paths.empty?
-
-        ohai "Removing files:"
-        each_resolved_path(:delete, paths) do |path, resolved_paths|
-          puts path
-          command.run!(
-            "/usr/bin/xargs",
-            args:  ["-0", "--", "/bin/rm", "-r", "-f", "--"],
-            input: resolved_paths.join("\0"),
-            sudo:  true,
-          )
-        end
-      end
-
-      sig { params(paths: T.any(Pathname, String), options: T.anything).void }
-      def uninstall_trash(*paths, **options)
-        return if paths.empty?
-
-        resolved_paths = each_resolved_path(:trash, paths).to_a
-
-        ohai "Trashing files:", resolved_paths.map(&:first)
-        trash_paths(*resolved_paths.flat_map(&:last), **options)
-      end
-
       sig {
         params(paths: Pathname, command: T.nilable(T.class_of(SystemCommand)), _kwargs: T.anything)
           .returns(T.nilable([T::Array[String], T::Array[String]]))
@@ -546,11 +284,6 @@ module Cask
         $stderr.puts untrashable
 
         [trashed, untrashable]
-      end
-
-      sig { params(directories: Pathname).returns(T::Boolean) }
-      def all_dirs?(*directories)
-        directories.all?(&:directory?)
       end
 
       sig { params(directories: Pathname, command: T.class_of(SystemCommand), _kwargs: T.anything).void }
@@ -588,19 +321,6 @@ module Cask
           end
 
           true
-        end
-      end
-
-      sig { params(directories: T.any(Pathname, String), kwargs: T.anything).void }
-      def uninstall_rmdir(*directories, **kwargs)
-        return if directories.empty?
-
-        ohai "Removing directories if empty:"
-
-        each_resolved_path(:rmdir, directories) do |_path, resolved_paths|
-          next unless resolved_paths.all?(&:directory?)
-
-          recursive_rmdir(*resolved_paths, **kwargs)
         end
       end
 
