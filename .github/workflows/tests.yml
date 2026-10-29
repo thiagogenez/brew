@@ -1,12 +1,9 @@
-name: CI
+name: CI (PR 4 validation)
 
 on:
   push:
     branches:
-      - main
-      - master
-  pull_request:
-  merge_group:
+      - validate-bundle-pr4
 
 permissions:
   contents: read
@@ -29,7 +26,7 @@ concurrency:
 
 jobs:
   syntax:
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: ubuntu-latest
     steps:
       - name: Set up Homebrew
@@ -66,7 +63,7 @@ jobs:
   tap-syntax:
     name: tap syntax
     needs: syntax
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: macos-26
     steps:
       - name: Set up Homebrew
@@ -102,7 +99,7 @@ jobs:
   formula-audit:
     name: formula audit
     needs: syntax
-    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/homebrew/brew:main
@@ -126,7 +123,7 @@ jobs:
   cask-audit:
     name: cask audit
     needs: syntax
-    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: macos-26
     steps:
       - name: Set up Homebrew
@@ -182,7 +179,6 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runs-on }}
     needs: syntax
-    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -207,7 +203,7 @@ jobs:
 
   tests:
     name: ${{ matrix.name }}
-    if: github.repository_owner == 'Homebrew'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 30
     permissions:
@@ -372,7 +368,6 @@ jobs:
         run: echo "HOMEBREW_TESTS_NO_SORBET_RUNTIME=1" >> "$GITHUB_ENV"
 
       - name: Run brew tests
-        if: github.event_name == 'pull_request' || matrix.online != true
         run: |
           read -ra test_flags <<< "$TEST_FLAGS"
           if (( SHARD_COUNT > 0 )); then
@@ -412,7 +407,7 @@ jobs:
           echo "filenames=${filenames%,}" >> "$GITHUB_OUTPUT"
 
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        if: matrix.load-only != true && (github.event_name == 'pull_request' || matrix.online != true)
+        if: github.repository_owner == 'Homebrew'
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: ${{ steps.junit_xml.outputs.filenames }}
@@ -421,17 +416,48 @@ jobs:
           report_type: test_results
 
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        if: matrix.load-only != true && (github.event_name == 'pull_request' || matrix.online != true)
+        if: github.repository_owner == 'Homebrew'
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: Library/Homebrew/test/coverage/coverage.xml
           disable_search: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  baseline-comparison:
+    name: Compare failing tests with upstream baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@4790763c0a3ba4036f72634dc079c4a7dfcd4878 # 2026.10.19.1
+        with:
+          core: false
+          cask: false
+
+      - name: Install Bundler RubyGems
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
+        run: ./bin/brew install-bundler-gems --groups=all
+
+      - name: Cleanup permissions
+        run: sudo chmod -R g-w,o-w /home/linuxbrew/.linuxbrew/Homebrew
+
+      - name: Test upstream baseline without our changes
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
+        run: |
+          git checkout --detach c5b9f65d0b679d719545df334e8d433a5b6ded3f
+          ./bin/brew tests --generic --only=sandbox_shared:739,shims/shared/curl --no-parallel --seed=44636
+
+      - name: Test PR 4 on the same runner
+        if: success() || failure()
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
+        run: |
+          git checkout --detach 07f3a79439615be57336435310bd8551ae0cedfe
+          ./bin/brew tests --generic --only=sandbox_shared:739,shims/shared/curl --no-parallel --seed=44636
+
   test-bot:
     name: ${{ matrix.name }}
     needs: syntax
-    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: ${{ matrix.runs-on }}
     container:
       image: ${{ matrix.container }}
@@ -471,6 +497,7 @@ jobs:
             padded-prefix: true
     env:
       HOMEBREW_TEST_BOT_ANALYTICS: 1
+      HOMEBREW_BREW_GIT_REMOTE: https://github.com/thiagogenez/brew
     steps:
       - name: Install Homebrew and Homebrew's dependencies
         # All other images are built from our Homebrew Dockerfile.
@@ -558,7 +585,7 @@ jobs:
   bundle-and-services:
     name: ${{ matrix.name }}
     needs: syntax
-    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    if: github.repository_owner == 'thiagogenez'
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
@@ -619,7 +646,7 @@ jobs:
           - name: analytics (macOS)
             runs-on: macos-latest
     needs: syntax
-    if: github.repository_owner == 'Homebrew' && github.event_name != 'push'
+    if: github.repository_owner == 'thiagogenez'
     steps:
       - name: Set up Homebrew
         id: set-up-homebrew
