@@ -370,6 +370,32 @@ RSpec.describe Homebrew::Bundle::Npm do
   end
 
   describe "installing" do
+    context "when node is outside PATH" do
+      let(:npm) { mktmpdir/"bin/npm" }
+
+      before do
+        npm.dirname.mkpath
+        npm.write "#!/usr/bin/env node\n"
+        npm.chmod 0755
+        (npm.dirname/"node").write "#!/bin/sh\nexit 0\n"
+        (npm.dirname/"node").chmod 0755
+        ENV["PATH"] = mktmpdir.to_s
+        allow(described_class).to receive(:package_manager_executable).and_return(npm)
+      end
+
+      test_each([false, true]) do |verbose|
+        it "finds node when installing a package with verbose=#{verbose}" do
+          expect(described_class.install_package!("third-tool", verbose:)).to be(true)
+        end
+
+        it "finds node when installing a batch with verbose=#{verbose}" do
+          entries = [Homebrew::Bundle::Dsl::Entry.new(:npm, "third-tool")]
+
+          expect(described_class.install_batch!(entries, verbose:)).to be(true)
+        end
+      end
+    end
+
     context "when npm is not installed" do
       before do
         described_class.reset!

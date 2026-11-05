@@ -20,18 +20,9 @@ module Homebrew
       def system(cmd, *args, verbose: false)
         return super cmd, *args if verbose
 
-        env = {}
-
-        # Make sure node's bin opt path is part of the PATH
-        # This is essential for the npm bundle extension that calls node directly
-        if Npm.package_manager_executable && cmd.to_s == Npm.package_manager_executable.to_s
-          node_bin = "#{HOMEBREW_PREFIX}/opt/node/bin"
-          env["PATH"] = "#{ENV.fetch("PATH")}:#{node_bin}"
-        end
-
         logs = []
         success = T.let(false, T::Boolean)
-        IO.popen(env, [cmd, *args], err: [:child, :out]) do |pipe|
+        IO.popen([cmd, *args], err: [:child, :out]) do |pipe|
           while (buf = pipe.gets)
             logs << buf
           end

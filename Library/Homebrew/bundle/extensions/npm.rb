@@ -89,8 +89,10 @@ module Homebrew
 
         sig { override.params(entries: T::Array[Dsl::Entry], verbose: T::Boolean).returns(T::Boolean) }
         def install_batch!(entries, verbose: false)
-          Bundle.system(package_manager_executable!.to_s, "install", *Language::Node.npm_install_security_args,
-                        "-g", *entries.map(&:name), verbose:)
+          with_package_manager_env do |npm|
+            Bundle.system(npm.to_s, "install", *Language::Node.npm_install_security_args,
+                          "-g", *entries.map(&:name), verbose:)
+          end
         end
 
         sig { override.returns(T::Array[String]) }
@@ -119,9 +121,9 @@ module Homebrew
         def install_package!(name, with: nil, verbose: false)
           _ = with
 
-          npm = package_manager_executable!
-
-          Bundle.system(npm.to_s, "install", *Language::Node.npm_install_security_args, "-g", name, verbose:)
+          with_package_manager_env do |npm|
+            Bundle.system(npm.to_s, "install", *Language::Node.npm_install_security_args, "-g", name, verbose:)
+          end
         end
 
         sig { override.returns(T::Array[String]) }
