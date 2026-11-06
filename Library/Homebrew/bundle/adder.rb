@@ -56,6 +56,7 @@ module Homebrew
           end
         end
 
+        content << "\n" if !content.empty? && !content.end_with?("\n")
         content << new_content.join("\n") << "\n"
         path = Dumper.brewfile_path(global:, file:)
 
